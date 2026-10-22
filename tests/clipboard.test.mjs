@@ -90,6 +90,7 @@ const copied = page => page.evaluate(() => window.__copied.slice());
 try {
   let { ctx, page } = await open('tate@ama.test');
   ok(await page.isVisible('#app') && (await page.textContent('#list')).includes('No templates yet'), 'signed in with an empty list and a hint to add one');
+  ok(await page.isVisible('#homeBtn') && (await page.getAttribute('#homeBtn', 'href')) === 'https://theggatonklenner.github.io/', 'home button goes back to the AMA Grading Toolkit');
 
   // Add templates
   await page.click('#newBtn'); await page.waitForSelector('#edForm');
