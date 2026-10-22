@@ -1,6 +1,6 @@
 // Clipboard: keeps the site opening with no signal. Pages are fetched fresh when possible;
 // libraries and fonts are kept once downloaded. Supabase requests (your templates) are never stored here.
-const CACHE = 'clipboard-v2';
+const CACHE = 'clipboard-v3';
 const SHELL = ['./', './index.html', './config.js', './manifest.webmanifest', './icon.svg', './apple-touch-icon.png'];
 const LIB_HOSTS = /(^|\.)(cdn\.jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com)$/;
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
