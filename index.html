@@ -123,7 +123,7 @@
 <main>
   <section id="signIn" class="auth card" hidden>
     <h2>Sign in</h2>
-    <p class="hint">Use your AMA login. Your templates are private to you and the same on every device.</p>
+    <p class="hint">Use your AMA login. Templates are shared by all AMA staff and are the same on every device.</p>
     <form id="signInForm" style="display:flex;flex-direction:column;gap:12px">
       <div class="field"><label for="siEmail">Email</label><input type="email" id="siEmail" autocomplete="username" required></div>
       <div class="field"><label for="siPass">Password</label><input type="password" id="siPass" autocomplete="current-password" required></div>
@@ -132,9 +132,15 @@
   </section>
 
   <section id="setup" class="card" hidden>
-    <h2>One-off setup</h2>
-    <p class="hint">The templates table isn't in Supabase yet. In Supabase, open SQL Editor &gt; New query, paste the whole of <code>supabase/clipboard-setup.sql</code> from the clipboard repository, click Run (choose "with RLS" if asked), then come back and tap Try again.</p>
+    <h2>Setup needed</h2>
+    <p class="hint">Clipboard's database setup is missing or out of date. In Supabase, open SQL Editor &gt; New query, paste the whole of <code>supabase/clipboard-setup.sql</code> from the clipboard repository, click Run (choose "with RLS" if asked), then come back and tap Try again.</p>
     <div class="row"><button class="btn primary" id="retry">Try again</button></div>
+  </section>
+
+  <section id="noAccess" class="card" hidden>
+    <h2>No access</h2>
+    <p class="hint">Clipboard is for AMA staff. Your login needs a permission in AMA ID Cards or a role in Black Belt Prep. Ask an admin to add one, then tap Try again.</p>
+    <div class="row"><button class="btn primary" id="retry2">Try again</button><button class="btn" id="signOut2">Sign out</button></div>
   </section>
 
   <section id="app" hidden style="display:flex;flex-direction:column;gap:12px">
@@ -186,7 +192,7 @@ function confirmBox(text, yes) {
     $('#cfNo').onclick = () => { dlg.close(); res(false); }; $('#cfYes').onclick = () => { dlg.close(); res(true); };
   });
 }
-function show(id) { ['#signIn', '#setup', '#app'].forEach(s => $(s).hidden = s !== id); $('#newBtn').hidden = id !== '#app'; }
+function show(id) { ['#signIn', '#setup', '#noAccess', '#app'].forEach(s => $(s).hidden = s !== id); $('#newBtn').hidden = id !== '#app'; }
 
 /* ---------- Fill-in blanks ---------- */
 // {date}, {day} and {time} fill themselves in; anything else in {braces} is asked for when copying.
@@ -248,8 +254,14 @@ function askBlanks(t, need) {
 
 /* ---------- Loading and showing ---------- */
 const cacheKey = () => 'clipCache:' + state.email;
+const shortName = e => { const n = String(e || '').split('@')[0].replace(/[._-]+/g, ' ').trim(); return n ? n.replace(/\b\w/g, c => c.toUpperCase()) : 'someone'; };
+const byText = t => { const me = x => x === state.email; const a = me(t.owner) ? 'you' : shortName(t.owner);
+  return t.updated_by && t.updated_by !== t.owner ? `Added by ${a}, changed by ${me(t.updated_by) ? 'you' : shortName(t.updated_by)}` : `Added by ${a}`; };
 function cacheItems() { store.set(cacheKey(), state.items); }
 async function load() {
+  const staff = await sb.rpc('clip_is_staff');
+  if (!staff.error && staff.data === false) { show('#noAccess'); return; }
+  if (staff.error && /clip_is_staff|schema cache|does not exist|function/i.test(staff.error.message || '')) { show('#setup'); return; }
   const { data, error } = await sb.from('clip_templates').select('*');
   if (error) {
     if (/clip_templates|schema cache|does not exist|relation/i.test(error.message || '')) { show('#setup'); return; }
@@ -284,7 +296,7 @@ function draw() {
       <button class="copy" data-copy="${t.id}" aria-label="Copy ${esc(t.title)}">
         <span class="t">${t.pinned ? '<span class="pin" aria-label="Pinned">&#9733;</span>' : ''}${esc(t.title)}</span>
         <span class="p">${esc(t.body)}</span>
-        <span class="m">${t.category ? `<span class="tag">${esc(t.category)}</span>` : ''}${blanks(t.body).length ? `<span>Fill in: ${esc(blanks(t.body).join(', '))}</span>` : ''}</span>
+        <span class="m">${t.category ? `<span class="tag">${esc(t.category)}</span>` : ''}${blanks(t.body).length ? `<span>Fill in: ${esc(blanks(t.body).join(', '))}</span>` : ''}<span>${esc(byText(t))}</span></span>
       </button>
       <div class="side"><button data-copy="${t.id}" tabindex="-1" aria-hidden="true">Copy</button><button data-edit="${t.id}">Edit</button></div></li>`).join('')
     : `<li class="empty">${state.items.length ? 'No templates match.' : 'No templates yet. Tap New to add your first one.'}</li>`;
@@ -297,7 +309,7 @@ function draw() {
 function openEditor(t = null, copyFrom = null) {
   const src = t || copyFrom || { title: '', body: '', category: state.cat || '', pinned: false };
   openDlg(`<form class="dlg" id="edForm">
-    <div class="dlg-head"><h3>${t ? 'Edit template' : 'New template'}</h3><button class="x" data-close>Close</button></div>
+    <div class="dlg-head"><div><h3>${t ? 'Edit template' : 'New template'}</h3><p class="hint">${t ? esc(byText(t)) + '. ' : ''}Shared with all AMA staff.</p></div><button class="x" data-close>Close</button></div>
     <div class="field"><label for="edTitle">Name</label><input type="text" id="edTitle" required maxlength="120" value="${esc(copyFrom ? src.title + ' (copy)' : src.title)}" placeholder="e.g. Grading fee reminder"></div>
     <div class="field"><label for="edBody">Text to copy</label><textarea id="edBody" placeholder="Hi {Name}, ...">${esc(src.body)}</textarea>
       <p class="hint">Put a blank in braces, like <code>{Name}</code> or <code>{Amount}</code>, and you'll be asked for it when copying. <code>{date}</code>, <code>{day}</code> and <code>{time}</code> fill themselves in.</p></div>
@@ -319,7 +331,7 @@ function openEditor(t = null, copyFrom = null) {
   if (t) {
     $('#edDel').onclick = async () => {
       if (state.offline) return toast('No connection. Changes need a connection.');
-      if (!await confirmBox(`Delete "${t.title}"?`, 'Delete')) return openEditor(t);
+      if (!await confirmBox(`Delete "${t.title}"? It's shared, so it goes for everyone.`, 'Delete')) return openEditor(t);
       const { error } = await sb.from('clip_templates').delete().eq('id', t.id);
       if (error) return toast('Not deleted: ' + error.message, 5000);
       toast('Deleted'); await load();
@@ -364,6 +376,8 @@ document.addEventListener('keydown', e => {
 $('#sort').onchange = e => { state.sort = e.target.value; store.set('clipSort', state.sort); draw(); };
 $('#newBtn').onclick = () => openEditor();
 $('#retry').onclick = load;
+$('#retry2').onclick = load;
+$('#signOut2').onclick = async () => { await sb.auth.signOut(); state.items = []; state.email = ''; show('#signIn'); };
 $('#signOut').onclick = async () => { await sb.auth.signOut(); state.items = []; state.email = ''; show('#signIn'); };
 $('#signInForm').onsubmit = async e => {
   e.preventDefault(); $('#siGo').disabled = true;

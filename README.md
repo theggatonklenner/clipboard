@@ -6,7 +6,7 @@ Text templates you can copy with one tap: https://theggatonklenner.github.io/cli
 - Put blanks in braces, like `{Name}` or `{Amount}`, and you're asked for them when copying (with a preview). `{date}`, `{day}` and `{time}` fill themselves in.
 - Pin favourites to the top, sort by most used, A to Z or newest, search, and filter by category.
 - On a computer: press `/` to search, Enter to copy the top result.
-- Templates sync between devices through your AMA Supabase login. Each person only sees their own.
+- One shared library: everyone with an AMA staff login (a permission in AMA ID Cards or a role in Black Belt Prep) sees, copies and can edit every template. Each one shows who added it and who last changed it.
 - With no connection, your last saved copy still opens and copies.
 - **Export** saves a backup file; **Import** adds templates from one (skipping ones you already have).
 - Add it to your phone's home screen (Share > Add to Home Screen) to use it like an app.

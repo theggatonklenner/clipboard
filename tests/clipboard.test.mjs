@@ -19,8 +19,12 @@ const ok = (c, m) => { if (c) { passed++; console.log('  pass  ' + m); } else { 
 
 const db = new PGlite();
 await db.exec(read(join(PREP_TESTS, 'supabase-stub.sql')));
-const users = { 'tate@ama.test': { id: '00000000-0000-0000-0000-000000000001', password: 'pw' }, 'sam@ama.test': { id: '00000000-0000-0000-0000-000000000002', password: 'pw' } };
-await db.exec(`insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'tate@ama.test'), ('00000000-0000-0000-0000-000000000002', 'sam@ama.test')`);
+const users = { 'tate@ama.test': { id: '00000000-0000-0000-0000-000000000001', password: 'pw' }, 'sam@ama.test': { id: '00000000-0000-0000-0000-000000000002', password: 'pw' },
+  'station@ama.test': { id: '00000000-0000-0000-0000-000000000003', password: 'pw' } };
+await db.exec(`insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'tate@ama.test'), ('00000000-0000-0000-0000-000000000002', 'sam@ama.test'), ('00000000-0000-0000-0000-000000000003', 'station@ama.test');
+  -- The two apps' staff tables: Tate has ID Cards access, Sam a Black Belt Prep role, the print station neither
+  create table public.staff_permissions (email text, permission text); create table public.prep_roles (email text, role text);
+  insert into staff_permissions values ('tate@ama.test', 'admin'), ('station@ama.test', 'printer'); insert into prep_roles values ('sam@ama.test', 'instructor');`);
 
 async function as(email, fn) {
   await db.exec('set role authenticated');
@@ -33,20 +37,27 @@ const SQL = read(join(here, '../supabase/clipboard-setup.sql'));
 await db.exec(SQL); await db.exec(SQL);
 ok(true, 'clipboard-setup.sql runs twice without errors');
 await as('tate@ama.test', () => db.exec(`insert into clip_templates (title, body, owner) values ('Mine', 'hello', 'sam@ama.test')`));
-ok((await db.query(`select owner from clip_templates where title = 'Mine'`)).rows[0].owner === 'tate@ama.test', 'a template always belongs to whoever is signed in (cannot be made for someone else)');
-await as('sam@ama.test', () => db.exec(`insert into clip_templates (title, body) values ('Sams', 'secret')`));
-ok((await as('tate@ama.test', () => db.query(`select title from clip_templates`))).rows.map(r => r.title).join() === 'Mine', 'you only see your own templates');
-const r1 = await as('tate@ama.test', () => db.query(`update clip_templates set body = 'x' where title = 'Sams'`));
-const r2 = await as('tate@ama.test', () => db.query(`delete from clip_templates where title = 'Sams'`));
-ok(r1.affectedRows === 0 && r2.affectedRows === 0, "you can't change or delete someone else's");
-await as('tate@ama.test', () => db.exec(`update clip_templates set owner = 'sam@ama.test' where title = 'Mine'`));
-ok((await db.query(`select owner from clip_templates where title = 'Mine'`)).rows[0].owner === 'tate@ama.test', 'a template cannot be handed to someone else');
+ok((await db.query(`select owner from clip_templates where title = 'Mine'`)).rows[0].owner === 'tate@ama.test', 'a template always records who really added it');
+await as('sam@ama.test', () => db.exec(`insert into clip_templates (title, body) values ('Sams', 'shared')`));
+ok((await as('tate@ama.test', () => db.query(`select title from clip_templates order by 1`))).rows.map(r => r.title).join() === 'Mine,Sams', 'everyone on the staff sees every template, whoever made it');
+ok((await as('sam@ama.test', () => db.query(`select title from clip_templates order by 1`))).rows.length === 2, 'including staff who only have a Black Belt Prep role');
+const r1 = await as('tate@ama.test', () => db.query(`update clip_templates set body = 'changed' where title = 'Sams'`));
+ok(r1.affectedRows === 1, "staff can edit each other's templates");
+const sams = (await db.query(`select owner, updated_by from clip_templates where title = 'Sams'`)).rows[0];
+ok(sams.owner === 'sam@ama.test' && sams.updated_by === 'tate@ama.test', 'it keeps who added it and records who changed it');
+await as('tate@ama.test', () => db.exec(`update clip_templates set owner = 'tate@ama.test' where title = 'Sams'`));
+ok((await db.query(`select owner from clip_templates where title = 'Sams'`)).rows[0].owner === 'sam@ama.test', '"added by" cannot be changed');
+ok((await as('station@ama.test', () => db.query(`select * from clip_templates`))).rows.length === 0, 'logins that are not staff (e.g. the print station) see nothing');
+let blocked = false; try { await as('station@ama.test', () => db.exec(`insert into clip_templates (title) values ('x')`)); } catch (e) { blocked = true; }
+ok(blocked, 'and cannot add templates');
+ok((await as('station@ama.test', () => db.query(`select clip_is_staff() s`))).rows[0].s === false && (await as('sam@ama.test', () => db.query(`select clip_is_staff() s`))).rows[0].s === true, 'clip_is_staff() tells the site who has access');
 let failedInsert = false; try { await as('tate@ama.test', () => db.exec(`insert into clip_templates (title) values ('  ')`)); } catch (e) { failedInsert = true; }
 ok(failedInsert, 'a template needs a name');
 const id = (await db.query(`select id from clip_templates where title = 'Mine'`)).rows[0].id;
 await as('tate@ama.test', () => db.query(`select clip_used($1)`, [id]));
 await as('sam@ama.test', () => db.query(`select clip_used($1)`, [id]));
-ok((await db.query(`select use_count from clip_templates where id = $1`, [id])).rows[0].use_count === 1, 'copies are counted, and only by the owner');
+const used = (await db.query(`select use_count, updated_by from clip_templates where id = $1`, [id])).rows[0];
+ok(used.use_count === 2 && used.updated_by === 'tate@ama.test', 'copies by anyone count towards "most used", without counting as a change');
 await db.exec(`delete from clip_templates`);
 ok((await db.query(`select relrowsecurity r from pg_class where relname = 'clip_templates'`)).rows[0].r, 'row level security is on');
 
@@ -149,7 +160,14 @@ try {
   await page.click('#signOut'); await page.waitForSelector('#signIn:not([hidden])');
   await page.fill('#siEmail', 'sam@ama.test'); await page.fill('#siPass', 'pw'); await page.click('#siGo');
   await page.waitForSelector('#app:not([hidden])');
-  ok((await page.textContent('#list')).includes('No templates yet'), "another person doesn't see your templates");
+  await page.waitForSelector('#list .tpl');
+  ok((await page.$$('#list .tpl')).length === 3 && (await page.textContent('#list')).includes('Added by Tate'), 'another staff member sees the same templates, with who added them');
+  await page.click('#list [data-copy]:has-text("Dojang address")');
+  ok((await copied(page)).at(-1) === '123 Example St, Marrickville NSW', 'and can copy them');
+  await page.click('#signOut'); await page.waitForSelector('#signIn:not([hidden])');
+  await page.fill('#siEmail', 'station@ama.test'); await page.fill('#siPass', 'pw'); await page.click('#siGo');
+  await page.waitForSelector('#noAccess:not([hidden])');
+  ok((await page.textContent('#noAccess')).includes('for AMA staff'), 'a login that is not staff is told why it has no access');
   await ctx.close();
 
   // Offline: saved copy still lets you copy
@@ -166,7 +184,7 @@ try {
   // Table not set up yet
   await db.exec(`alter table clip_templates rename to clip_templates_x`);
   ({ ctx, page } = await open('tate@ama.test'));
-  ok(await page.isVisible('#setup') && (await page.textContent('#setup')).includes('clipboard-setup.sql'), 'explains the one-off setup if the table is missing');
+  ok(await page.isVisible('#setup') && (await page.textContent('#setup')).includes('clipboard-setup.sql'), 'explains the setup if the table is missing');
   await db.exec(`alter table clip_templates_x rename to clip_templates`);
   await page.click('#retry'); await page.waitForSelector('#app:not([hidden])');
   ok(true, 'Try again works once it is set up');
