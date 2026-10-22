@@ -98,11 +98,12 @@ try {
   await page.fill('#edCat', 'Parents'); await page.check('#edPin');
   await page.click('#edSave'); await page.waitForSelector('#list [data-copy]');
   await page.click('#newBtn'); await page.waitForSelector('#edForm');
-  await page.fill('#edTitle', 'Dojang address'); await page.fill('#edBody', '123 Example St, Marrickville NSW'); await page.fill('#edCat', 'Admin');
+  await page.fill('#edTitle', 'Dojang address'); await page.press('#edTitle', 'Enter');
+  ok(await page.evaluate(() => document.querySelector('#dlg').open && document.activeElement.id === 'edBody'), 'Enter in the name moves to the text box (the window stays open)'); await page.fill('#edBody', '123 Example St, Marrickville NSW'); await page.fill('#edCat', 'Admin');
   await page.click('#edSave'); await page.waitForFunction(() => document.querySelectorAll('#list .tpl').length === 2);
   await page.click('#newBtn'); await page.waitForSelector('#edForm');
   await page.fill('#edTitle', 'Session reminder'); await page.fill('#edBody', 'See you at prep this {day}!');
-  await page.click('#edSave'); await page.waitForFunction(() => document.querySelectorAll('#list .tpl').length === 3);
+  await page.press('#edBody', 'Control+Enter'); await page.waitForFunction(() => document.querySelectorAll('#list .tpl').length === 3);
   ok((await db.query(`select count(*)::int n from clip_templates where owner = 'tate@ama.test'`)).rows[0].n === 3, 'templates saved to your account');
   ok((await page.textContent('#list .tpl:first-child')).includes('Grading fee reminder'), 'pinned template is at the top');
   ok((await page.textContent('#chips')).includes('Parents') && (await page.textContent('#chips')).includes('Admin'), 'categories show as filter buttons');
@@ -126,7 +127,10 @@ try {
   await page.fill('#blankForm [data-blank="Name"]', 'Kara'); await page.fill('#blankForm [data-blank="Amount"]', '$150');
   ok((await page.textContent('#blPrev')).startsWith('Hi Kara, a reminder that the grading fee of $150 is due.'), 'preview updates as you type');
   await page.screenshot({ path: join(SHOTS, 'clipboard-blanks.png') });
-  await page.click('#blGo');
+  await page.focus('#blankForm [data-blank="Name"]'); await page.press('#blankForm [data-blank="Name"]', 'Enter');
+  ok(await page.evaluate(() => document.querySelector('#dlg').open && document.activeElement.dataset.blank === 'Amount'), 'Enter in a blank moves to the next blank (the window stays open)');
+  await page.press('#blankForm [data-blank="Amount"]', 'Enter');
+  await page.waitForFunction(() => !document.querySelector('#dlg').open);
   const out = (await copied(page)).at(-1);
   ok(out.startsWith('Hi Kara, a reminder that the grading fee of $150 is due. Thanks, Tate (') && !out.includes('{'), 'copies the filled-in text, with {date} filled in');
   await page.click('#list .copy:has-text("Grading fee reminder")'); await page.waitForSelector('#blankForm');

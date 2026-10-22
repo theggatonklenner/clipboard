@@ -181,7 +181,7 @@ function toast(msg, ms = 2500) {
 }
 function openDlg(html) {
   dlg.innerHTML = html;
-  dlg.querySelectorAll('[data-close]').forEach(b => b.onclick = e => { e.preventDefault(); dlg.close(); });
+  dlg.querySelectorAll('[data-close]').forEach(b => { b.type = 'button'; b.onclick = e => { e.preventDefault(); dlg.close(); }; });
   if (!dlg.open) dlg.showModal();
   const t = $('#toast'); if (!t.hidden) { try { t.hidePopover(); t.showPopover(); } catch (e) { /* ignore */ } }
 }
@@ -230,20 +230,26 @@ async function finishCopy(t, text) {
   if (!state.offline) sb.rpc('clip_used', { p_id: t.id }).then(() => {}, () => {});
 }
 function showCopyFallback(t, text) {
-  openDlg(`<div class="dlg"><div class="dlg-head"><h3>${esc(t.title)}</h3><button class="x" data-close>Close</button></div>
+  openDlg(`<div class="dlg"><div class="dlg-head"><h3>${esc(t.title)}</h3><button type="button" class="x" data-close>Close</button></div>
     <p class="hint">Your browser blocked copying. Press and hold the text below, choose Select All, then Copy.</p>
     <textarea id="fbText" readonly>${esc(text)}</textarea></div>`);
   const ta = $('#fbText'); ta.focus(); ta.select();
 }
 function askBlanks(t, need) {
   const remembered = store.get('clipBlanks', {});
-  openDlg(`<form class="dlg" id="blankForm"><div class="dlg-head"><div><h3>${esc(t.title)}</h3><p class="hint">Fill in the blanks, then copy.</p></div><button class="x" data-close>Close</button></div>
+  openDlg(`<form class="dlg" id="blankForm"><div class="dlg-head"><div><h3>${esc(t.title)}</h3><p class="hint">Fill in the blanks, then copy.</p></div><button type="button" class="x" data-close>Close</button></div>
     ${need.map((n, i) => `<div class="field"><label for="bl${i}">${esc(n)}</label><input type="text" id="bl${i}" data-blank="${esc(n)}" value="${esc(remembered[n] || '')}" autocomplete="off"></div>`).join('')}
     <div class="label">Preview</div><div class="preview" id="blPrev"></div>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="blGo">Copy</button></div></form>`);
   const values = () => Object.fromEntries($$('#blankForm [data-blank]').map(i => [i.dataset.blank, i.value]));
   const prev = () => { $('#blPrev').textContent = fill(t.body, values()); };
   $$('#blankForm [data-blank]').forEach(i => i.oninput = prev); prev();
+  const fields = $$('#blankForm [data-blank]');
+  fields.forEach((inp, k) => inp.onkeydown = e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    if (k < fields.length - 1) { e.preventDefault(); fields[k + 1].focus(); fields[k + 1].select(); }   // next blank
+    // on the last blank, Enter submits the form: copy
+  });
   const first = $('#blankForm [data-blank]'); if (first) { first.focus(); first.select(); }
   $('#blankForm').onsubmit = async e => {
     e.preventDefault();
@@ -309,15 +315,17 @@ function draw() {
 function openEditor(t = null, copyFrom = null) {
   const src = t || copyFrom || { title: '', body: '', category: state.cat || '', pinned: false };
   openDlg(`<form class="dlg" id="edForm">
-    <div class="dlg-head"><div><h3>${t ? 'Edit template' : 'New template'}</h3><p class="hint">${t ? esc(byText(t)) + '. ' : ''}Shared with all AMA staff.</p></div><button class="x" data-close>Close</button></div>
+    <div class="dlg-head"><div><h3>${t ? 'Edit template' : 'New template'}</h3><p class="hint">${t ? esc(byText(t)) + '. ' : ''}Shared with all AMA staff.</p></div><button type="button" class="x" data-close>Close</button></div>
     <div class="field"><label for="edTitle">Name</label><input type="text" id="edTitle" required maxlength="120" value="${esc(copyFrom ? src.title + ' (copy)' : src.title)}" placeholder="e.g. Grading fee reminder"></div>
     <div class="field"><label for="edBody">Text to copy</label><textarea id="edBody" placeholder="Hi {Name}, ...">${esc(src.body)}</textarea>
-      <p class="hint">Put a blank in braces, like <code>{Name}</code> or <code>{Amount}</code>, and you'll be asked for it when copying. <code>{date}</code>, <code>{day}</code> and <code>{time}</code> fill themselves in.</p></div>
+      <p class="hint">Enter starts a new line; Ctrl+Enter (or Cmd+Enter) saves. Put a blank in braces, like <code>{Name}</code> or <code>{Amount}</code>, and you'll be asked for it when copying. <code>{date}</code>, <code>{day}</code> and <code>{time}</code> fill themselves in.</p></div>
     <div class="field"><label for="edCat">Category (optional)</label><input type="text" id="edCat" list="catList" maxlength="40" value="${esc(src.category || '')}" placeholder="e.g. Parents, Grading, Admin"><datalist id="catList">${categories().map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
     <label class="check"><input type="checkbox" id="edPin" ${src.pinned ? 'checked' : ''}> Pin to the top</label>
     <div class="row">${t ? '<button type="button" class="btn danger" id="edDel">Delete</button><button type="button" class="btn" id="edDup">Duplicate</button>' : ''}<span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="edSave">Save</button></div>
   </form>`);
   $('#edTitle').focus();
+  $('#edTitle').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('#edBody').focus(); } };
+  $('#edForm').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#edForm').requestSubmit(); } });
   $('#edForm').onsubmit = async e => {
     e.preventDefault();
     if (state.offline) return toast('No connection. Changes need a connection.');
